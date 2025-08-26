@@ -1,41 +1,110 @@
-package org.firstinspires.ftc.teamcode.vision;
+package org.firstinspires.ftc.teamcode;
 
+import com.qualcomm.robotcore.eventloop.opmode.LinearOpMode;
+import com.qualcomm.robotcore.eventloop.opmode.TeleOp;
+
+import org.firstinspires.ftc.robotcore.external.hardware.camera.WebcamName;
 import org.opencv.core.Core;
 import org.opencv.core.Mat;
+import org.opencv.core.Rect;
 import org.opencv.core.Scalar;
-import org.opencv.core.Size;
 import org.opencv.imgproc.Imgproc;
+import org.openftc.easyopencv.OpenCvCamera;
+import org.openftc.easyopencv.OpenCvCameraFactory;
+import org.openftc.easyopencv.OpenCvCameraRotation;
 import org.openftc.easyopencv.OpenCvPipeline;
+import org.openftc.easyopencv.OpenCvWebcam;
 
-public class ColorDetection extends OpenCvPipeline {
-    public enum DominantColor {
-        RED, GREEN, BLUE, UNKNOWN
-    }
-
-    public volatile DominantColor color = DominantColor.UNKNOWN;
+class ColorPickerPipeline extends OpenCvPipeline
+{
+    public Scalar avgHSV = new Scalar(0,0,0);
+    public Scalar avgYCrCb = new Scalar(0,0,0);
+    public Scalar avgLab = new Scalar(0,0,0);
 
     @Override
-    public Mat processFrame(Mat input) {
-        Mat blurred = new Mat();
-        Imgproc.GaussianBlur(input, blurred, new Size(5, 5), 0);
+    public Mat processFrame(Mat input)
+    {
+        int width = input.width();
+        int height = input.height();
 
-        // Calculate average color
-        Scalar avgColor = Core.mean(blurred);
+        int roiWidth = (int)(width * 0.1);
+        int roiHeight = (int)(height * 0.1);
+        int x = (width - roiWidth) / 2;
+        int y = (height - roiHeight) / 2;
+        Rect roiRect = new Rect(x, y, roiWidth, roiHeight);
 
-        double red = avgColor.val[0];
-        double green = avgColor.val[1];
-        double blue = avgColor.val[2];
+        Mat hsv = new Mat();
+        Mat ycrcb = new Mat();
+        Mat lab = new Mat();
+        Imgproc.cvtColor(input, hsv, Imgproc.COLOR_RGB2HSV);
+        Imgproc.cvtColor(input, ycrcb, Imgproc.COLOR_RGB2YCrCb);
+        Imgproc.cvtColor(input, lab, Imgproc.COLOR_RGB2Lab);
 
-        if (red > green && red > blue) {
-            color = DominantColor.RED;
-        } else if (green > red && green > blue) {
-            color = DominantColor.GREEN;
-        } else if (blue > red && blue > green) {
-            color = DominantColor.BLUE;
-        } else {
-            color = DominantColor.UNKNOWN;
-        }
+        Mat hsvRoi = hsv.submat(roiRect);
+        Mat ycrcbRoi = ycrcb.submat(roiRect);
+        Mat labRoi = lab.submat(roiRect);
+
+        avgHSV = Core.mean(hsvRoi);
+        avgYCrCb = Core.mean(ycrcbRoi);
+        avgLab = Core.mean(labRoi);
+
+        Imgproc.rectangle(input, roiRect, new Scalar(0,255,0), 2);
+
+        hsv.release();
+        ycrcb.release();
+        lab.release();
+        hsvRoi.release();
+        ycrcbRoi.release();
+        labRoi.release();
 
         return input;
+    }
+}
+
+@TeleOp
+public class ColorDetection extends LinearOpMode
+{
+    OpenCvWebcam webcam;
+
+    @Override
+    public void runOpMode() throws InterruptedException
+    {
+        int cameraMonitorViewId = hardwareMap.appContext.getResources()
+                .getIdentifier("cameraMonitorViewId", "id",
+                        hardwareMap.appContext.getPackageName());
+
+        webcam = OpenCvCameraFactory.getInstance().createWebcam(
+                hardwareMap.get(WebcamName.class, "Webcam 1"),
+                cameraMonitorViewId);
+
+        // Keep pipeline reference
+        ColorPickerPipeline pipeline = new ColorPickerPipeline();
+        webcam.setPipeline(pipeline);
+
+        webcam.openCameraDeviceAsync(new OpenCvCamera.AsyncCameraOpenListener() {
+            @Override
+            public void onOpened() {
+                webcam.startStreaming(320, 240, OpenCvCameraRotation.UPRIGHT);
+            }
+
+            @Override
+            public void onError(int errorCode) {
+                telemetry.addLine("Camera failed to open!");
+            }
+        });
+
+        telemetry.addLine("Waiting for start...");
+        telemetry.update();
+        waitForStart();
+
+        while (opModeIsActive()) {
+            telemetry.addData("FPS", webcam.getFps());
+            telemetry.addData("HSV", pipeline.avgHSV.toString());
+            telemetry.addData("YCrCb", pipeline.avgYCrCb.toString());
+            telemetry.addData("Lab", pipeline.avgLab.toString());
+            telemetry.update();
+
+            sleep(50);
+        }
     }
 }
