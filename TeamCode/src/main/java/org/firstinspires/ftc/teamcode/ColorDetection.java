@@ -47,6 +47,21 @@ class ColorPickerPipeline extends OpenCvPipeline
         avgHSV = Core.mean(hsvRoi);
         avgYCrCb = Core.mean(ycrcbRoi);
         avgLab = Core.mean(labRoi);
+        Imgproc.putText(input,
+                "HSV: " + (int)avgHSV.val[0] + ", " + (int)avgHSV.val[1] + ", " + (int)avgHSV.val[2],
+                new org.opencv.core.Point(10, 30),
+                Imgproc.FONT_HERSHEY_SIMPLEX, 0.6, new Scalar(255,255,255), 2);
+
+        Imgproc.putText(input,
+                "YCrCb: " + (int)avgYCrCb.val[0] + ", " + (int)avgYCrCb.val[1] + ", " + (int)avgYCrCb.val[2],
+                new org.opencv.core.Point(10, 60),
+                Imgproc.FONT_HERSHEY_SIMPLEX, 0.6, new Scalar(255,255,255), 2);
+
+        Imgproc.putText(input,
+                "Lab: " + (int)avgLab.val[0] + ", " + (int)avgLab.val[1] + ", " + (int)avgLab.val[2],
+                new org.opencv.core.Point(10, 90),
+                Imgproc.FONT_HERSHEY_SIMPLEX, 0.6, new Scalar(255,255,255), 2);
+
 
         Imgproc.rectangle(input, roiRect, new Scalar(0,255,0), 2);
 
@@ -56,7 +71,6 @@ class ColorPickerPipeline extends OpenCvPipeline
         hsvRoi.release();
         ycrcbRoi.release();
         labRoi.release();
-
         return input;
     }
 }
@@ -98,10 +112,8 @@ public class ColorDetection extends LinearOpMode
         waitForStart();
 
         while (opModeIsActive()) {
+            telemetry.addData("Javi", "Hello");
             telemetry.addData("FPS", webcam.getFps());
-            telemetry.addData("HSV", pipeline.avgHSV.toString());
-            telemetry.addData("YCrCb", pipeline.avgYCrCb.toString());
-            telemetry.addData("Lab", pipeline.avgLab.toString());
             telemetry.update();
 
             sleep(50);

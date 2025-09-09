@@ -33,6 +33,7 @@ import org.opencv.core.MatOfInt;
 import org.opencv.core.MatOfPoint;
 import org.opencv.core.MatOfPoint2f;
 import org.opencv.core.Point;
+import org.opencv.core.Rect;
 import org.opencv.core.Scalar;
 import org.opencv.core.Size;
 import org.opencv.imgproc.Imgproc;
@@ -56,8 +57,9 @@ public class OpenCV extends LinearOpMode
     OpenCvWebcam webcam;
     Mat hsvMat = new Mat();
     Mat thresholdedMat = new Mat();
-    Scalar lowerBound = new Scalar(0, 100, 50);  // Example HSV lower bound
-    Scalar upperBound = new Scalar(10, 255, 255);
+    double minArea = 1000;
+    Scalar lowerBound = new Scalar(65, 100, 100);  // Example HSV lower bound
+    Scalar upperBound = new Scalar(75, 255, 255);
 
 
     @Override
@@ -250,7 +252,7 @@ public class OpenCV extends LinearOpMode
             List<MatOfPoint> contours = new ArrayList<>();
             Imgproc.findContours(morphed, contours, new Mat(), Imgproc.RETR_EXTERNAL, Imgproc.CHAIN_APPROX_SIMPLE);
 
-            Stream<MatOfPoint> stream_contours = contours.stream().filter(c -> Imgproc.contourArea(c) > 1000);
+            Stream<MatOfPoint> stream_contours = contours.stream().filter(c -> Imgproc.contourArea(c) > minArea);
             List<MatOfPoint> filtered_contours = stream_contours.collect(Collectors.toList());
 
             List<MatOfPoint> polygons = new ArrayList<>();
@@ -277,10 +279,23 @@ public class OpenCV extends LinearOpMode
                 Imgproc.approxPolyDP(hull2f, approxCurve, epsilon, true);
 
                 if (approxCurve.total() >= 3) {
-                    polygons.add(new MatOfPoint(approxCurve.toArray()));
+                    MatOfPoint polygon = new MatOfPoint(approxCurve.toArray());
+
+                    /*
+                    Point[] pts = polygon.toArray();
+                    double avgX = Arrays.stream(pts).mapToDouble(p -> p.x).average().orElse(0);
+                    double avgY = Arrays.stream(pts).mapToDouble(p -> p.y).average().orElse(0);
+                    Point centerAlt = new Point(avgX, avgY);
+                    */
+
+                    polygons.add(polygon);
                 }
             }
-
+            if (!polygons.isEmpty()) {
+                Rect rect = Imgproc.boundingRect(polygons.get(0)); // get bounding box of first polygon
+                telemetry.addData("Height", rect.height);
+                telemetry.addData("Width", rect.width);}
+                telemetry.update();
             return polygons;
         }
 
