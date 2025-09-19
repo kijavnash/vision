@@ -21,6 +21,8 @@
 
 package org.firstinspires.ftc.teamcode;
 
+import android.util.Size;
+
 import com.qualcomm.robotcore.eventloop.opmode.LinearOpMode;
 import com.qualcomm.robotcore.eventloop.opmode.TeleOp;
 
@@ -29,6 +31,8 @@ import org.firstinspires.ftc.robotcore.external.navigation.AngleUnit;
 import org.firstinspires.ftc.robotcore.external.navigation.AxesOrder;
 import org.firstinspires.ftc.robotcore.external.navigation.AxesReference;
 import org.firstinspires.ftc.robotcore.external.navigation.Orientation;
+import org.firstinspires.ftc.vision.VisionPortal;
+import org.firstinspires.ftc.vision.apriltag.AprilTagProcessor;
 import org.openftc.apriltag.AprilTagDetection;
 import org.openftc.easyopencv.OpenCvCamera;
 import org.openftc.easyopencv.OpenCvCameraFactory;
@@ -54,6 +58,8 @@ public class AprilTag extends LinearOpMode
     double fy = 578.272;
     double cx = 402.145;
     double cy = 221.506;
+    private VisionPortal visionPortal;
+    private AprilTagProcessor aprilTag;
 
     // UNITS ARE METERS
     double tagsize = 0.166;
@@ -66,6 +72,35 @@ public class AprilTag extends LinearOpMode
     @Override
     public void runOpMode()
     {
+        VisionPortal visionPortal;
+        VisionPortal.Builder builder = new VisionPortal.Builder();
+
+        // Set the camera.
+        aprilTag = new AprilTagProcessor.Builder()
+                // Set your specific processor options here
+                .setDrawTagID(true)
+                .setDrawTagOutline(true)
+                .build();
+        // Create a new VisionPortal builder
+        visionPortal = new VisionPortal.Builder()
+                .addProcessor(aprilTag)  // Add the AprilTag processor
+                .setCamera(hardwareMap.get(WebcamName.class, "Webcam 1")) // Specify the webcam from the hardware map
+                .build();
+
+
+        // Create a new VisionPortal Builder object.
+
+        builder.setCamera(hardwareMap.get(WebcamName.class, "Webcam 1"));
+
+        // *** CRITICAL STEP: Set the preferred format and resolution ***
+        // NOTE: The camera must support this format and resolution combination.
+        builder.setCameraResolution(new Size(640, 480));
+        builder.setStreamFormat(VisionPortal.StreamFormat.MJPEG);
+
+        // Build the VisionPortal.
+        visionPortal = builder.build();
+
+
         int cameraMonitorViewId = hardwareMap.appContext.getResources().getIdentifier("cameraMonitorViewId", "id", hardwareMap.appContext.getPackageName());
         camera = OpenCvCameraFactory.getInstance().createWebcam(hardwareMap.get(WebcamName.class, "Webcam 1"), cameraMonitorViewId);
         aprilTagDetectionPipeline = new AprilTagDetectionPipeline(tagsize, fx, fy, cx, cy);
@@ -76,7 +111,7 @@ public class AprilTag extends LinearOpMode
             @Override
             public void onOpened()
             {
-                camera.startStreaming(320,240, OpenCvCameraRotation.UPRIGHT);
+                camera.startStreaming(640,480, OpenCvCameraRotation.UPRIGHT);
             }
 
             @Override

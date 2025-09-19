@@ -29,17 +29,106 @@
 
 package org.firstinspires.ftc.teamcode;
 
-import android.util.Size;
-import com.qualcomm.robotcore.eventloop.opmode.Disabled;
 import com.qualcomm.robotcore.eventloop.opmode.LinearOpMode;
 import com.qualcomm.robotcore.eventloop.opmode.TeleOp;
 import org.firstinspires.ftc.robotcore.external.hardware.camera.BuiltinCameraDirection;
 import org.firstinspires.ftc.robotcore.external.hardware.camera.WebcamName;
 import org.firstinspires.ftc.vision.VisionPortal;
+import org.firstinspires.ftc.vision.VisionProcessor;
 import org.firstinspires.ftc.vision.apriltag.AprilTagDetection;
 import org.firstinspires.ftc.vision.apriltag.AprilTagProcessor;
+import org.opencv.core.Mat;
 
 import java.util.List;
+
+// put inside NewAprilTag (as a static inner class)
+class CroppedAprilTagProcessor implements VisionProcessor {
+    private final org.opencv.core.Rect roi;   // region in full-frame pixels
+    private final AprilTagProcessor delegate;
+
+    public CroppedAprilTagProcessor(org.opencv.core.Rect roi, AprilTagProcessor delegate) {
+        this.roi = roi;
+        this.delegate = delegate;
+    }
+
+    // init: tell delegate the cropped resolution (so internal buffers match)
+    @Override
+    public void init(int width, int height, org.firstinspires.ftc.robotcore.internal.camera.calibration.CameraCalibration calibration) {
+        // initialize delegate using the ROI size and the same calibration object
+        // (note: calibration is for full camera; pose will be affected if you don't adjust intrinsics)
+        delegate.init(roi.width, roi.height, calibration);
+    }
+
+    @Override
+    public Object processFrame(Mat frame, long captureTimeNanos) {
+        // safe ROI inside frame bounds
+        int x = Math.max(0, roi.x);
+        int y = Math.max(0, roi.y);
+        int w = Math.min(roi.width, frame.width() - x);
+        int h = Math.min(roi.height, frame.height() - y);
+
+        if (w <= 0 || h <= 0) {
+            // fallback: process full frame if ROI invalid
+            return delegate.processFrame(frame, captureTimeNanos);
+        }
+
+        // submat = view into the original Mat (no copy)
+        Mat cropped = frame.submat(new org.opencv.core.Rect(x, y, w, h));
+
+        // Let the AprilTag processor handle the cropped image
+        Object userContext = delegate.processFrame(cropped, captureTimeNanos);
+
+        // Adjust detected centers from cropped coords -> full-frame coords
+        // (delegate.getDetections() returns detections in cropped image coordinates)
+        List<AprilTagDetection> dets = delegate.getDetections();
+        for (AprilTagDetection d : dets) {
+            d.center.x += x;
+            d.center.y += y;
+        }
+
+        // return whatever the delegate returned (usually null)
+        return userContext;
+    }
+
+    @Override
+    public void onDrawFrame(android.graphics.Canvas canvas, int onscreenWidth, int onscreenHeight,
+                            float scaleBmpPxToCanvasPx, float scaleCanvasDensity, Object userContext) {
+        // Draw ROI box (red) and simple tag markers (green)
+        android.graphics.Paint roiPaint = new android.graphics.Paint();
+        roiPaint.setColor(android.graphics.Color.RED);
+        roiPaint.setStyle(android.graphics.Paint.Style.STROKE);
+        roiPaint.setStrokeWidth(5);
+
+        canvas.drawRect(
+                roi.x * scaleBmpPxToCanvasPx,
+                roi.y * scaleBmpPxToCanvasPx,
+                (roi.x + roi.width) * scaleBmpPxToCanvasPx,
+                (roi.y + roi.height) * scaleBmpPxToCanvasPx,
+                roiPaint
+        );
+
+        // draw tiny markers for each detection (centers already shifted to full-frame coords)
+        android.graphics.Paint p = new android.graphics.Paint();
+        p.setColor(android.graphics.Color.GREEN);
+        p.setStyle(android.graphics.Paint.Style.FILL);
+        p.setTextSize(18 * scaleCanvasDensity);
+
+        List<AprilTagDetection> dets = delegate.getDetections();
+        for (AprilTagDetection d : dets) {
+            float cx = (float) (d.center.x * scaleBmpPxToCanvasPx);
+            float cy = (float) (d.center.y * scaleBmpPxToCanvasPx);
+            canvas.drawCircle(cx, cy, 6, p);
+            canvas.drawText(String.valueOf(d.id), cx + 8, cy - 8, p);
+        }
+    }
+
+    // expose detections if you want to read them (delegates to underlying processor)
+    public List<AprilTagDetection> getDetections() {
+        return delegate.getDetections();
+    }
+}
+
+
 
 /*
  * This OpMode illustrates the basics of AprilTag recognition and pose estimation,
@@ -69,12 +158,14 @@ import java.util.List;
 
 public class NewAprilTag extends LinearOpMode {
 
+
     private static final boolean USE_WEBCAM = true;  // true for webcam, false for phone camera
 
     /**
      * The variable to store our instance of the AprilTag processor.
      */
     private AprilTagProcessor aprilTag;
+
 
     /**
      * The variable to store our instance of the vision portal.
@@ -120,70 +211,38 @@ public class NewAprilTag extends LinearOpMode {
     /**
      * Initialize the AprilTag processor.
      */
+
     private void initAprilTag() {
-
-        // Create the AprilTag processor.
-        aprilTag = new AprilTagProcessor.Builder()
-
-                // The following default settings are available to un-comment and edit as needed.
-                //.setDrawAxes(false)
-                //.setDrawCubeProjection(false)
-                //.setDrawTagOutline(true)
-                //.setTagFamily(AprilTagProcessor.TagFamily.TAG_36h11)
-                //.setTagLibrary(AprilTagGameDatabase.getCenterStageTagLibrary())
-                //.setOutputUnits(DistanceUnit.INCH, AngleUnit.DEGREES)
-
-                // == CAMERA CALIBRATION ==
-                // If you do not manually specify calibration parameters, the SDK will attempt
-                // to load a predefined calibration for your camera.
-                //.setLensIntrinsics(578.272, 578.272, 402.145, 221.506)
-                // ... these parameters are fx, fy, cx, cy.
-
+        // Build AprilTag processor (turn off internal drawing so wrapper draws)
+         aprilTag = new AprilTagProcessor.Builder()
                 .build();
 
-        // Adjust Image Decimation to trade-off detection-range for detection-rate.
-        // eg: Some typical detection data using a Logitech C920 WebCam
-        // Decimation = 1 ..  Detect 2" Tag from 10 feet away at 10 Frames per second
-        // Decimation = 2 ..  Detect 2" Tag from 6  feet away at 22 Frames per second
-        // Decimation = 3 ..  Detect 2" Tag from 4  feet away at 30 Frames Per Second (default)
-        // Decimation = 3 ..  Detect 5" Tag from 10 feet away at 30 Frames Per Second (default)
-        // Note: Decimation can be changed on-the-fly to adapt during a match.
-        //aprilTag.setDecimation(3);
+        // choose ROI (example: center 320x240)
+        org.opencv.core.Rect roi = new org.opencv.core.Rect(160, 120, 320, 240);
 
-        // Create the vision portal by using a builder.
+        // Wrap the raw AprilTag processor with cropping behavior
+        //CroppedAprilTagProcessor croppedProcessor = new CroppedAprilTagProcessor(roi, rawAprilTag);
+
+        // Build vision portal
         VisionPortal.Builder builder = new VisionPortal.Builder();
-
-        // Set the camera (webcam vs. built-in RC phone camera).
         if (USE_WEBCAM) {
             builder.setCamera(hardwareMap.get(WebcamName.class, "Webcam 1"));
         } else {
             builder.setCamera(BuiltinCameraDirection.BACK);
         }
+        builder.setStreamFormat(VisionPortal.StreamFormat.MJPEG);
 
-        // Choose a camera resolution. Not all cameras support all resolutions.
-        builder.setCameraResolution(new Size(640, 480));
+        // add the cropped wrapper (it calls the rawAprilTag internally)
+        //builder.addProcessor(croppedProcessor);
 
-        // Enable the RC preview (LiveView).  Set "false" to omit camera monitoring.
-        //builder.enableLiveView(true);
-
-        // Set the stream format; MJPEG uses less bandwidth than default YUY2.
-        //builder.setStreamFormat(VisionPortal.StreamFormat.YUY2);
-
-        // Choose whether or not LiveView stops if no processors are enabled.
-        // If set "true", monitor shows solid orange screen if no processors enabled.
-        // If set "false", monitor shows camera view without annotations.
-        //builder.setAutoStopLiveView(false);
-
-        // Set and enable the processor.
-        builder.addProcessor(aprilTag);
-
-        // Build the Vision Portal, using the above settings.
         visionPortal = builder.build();
 
-        // Disable or re-enable the aprilTag processor at any time.
-        //visionPortal.setProcessorEnabled(aprilTag, true);
+        // keep a reference to the raw AprilTag so your telemetry code (aprilTag.getDetections()) still works
+        // NOTE: we assigned rawAprilTag earlier; keep using aprilTag variable for telemetry:
+        //aprilTag = rawAprilTag;
+    }
 
-    }   // end method initAprilTag()
+   // end method initAprilTag()
 
 
     /**
